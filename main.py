@@ -93,6 +93,9 @@ def unbind_address(src_port, src_ip='127.0.0.1', dst_port=None, dst_ip=None):
     """TO DO"""
     pass
 
+def analyze_and_built_structure(data):
+    pass
+
 def test_basics():
     list_of_nodes = get_list_of_nodes()
 
@@ -109,6 +112,9 @@ def test_basics():
 
 """
 launch as super user
+
+NOTES:
+add: info about xmlrpc servers
 """
 def main():
     #test_basics()
