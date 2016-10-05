@@ -33,6 +33,12 @@ get_tcp_port_all = 'netstat --all --program | grep '
 
 bind_address = 'iptables -A OUTPUT -p tcp --dport {0} -j NFQUEUE --queue-num 1'
 
+get_topic_list_cmd = ['rostopic', 'list']
+
+get_topic_type_cmd = ['rostopic', 'type']
+
+show_msg_cmd = ['rosmsg', 'show']
+
 unbind_address = ""
 
 def _exec_command(cmd, shell=False):
@@ -103,12 +109,41 @@ def test_basics():
     for i in range(len(list_of_nodes)):
         print str(i) + ' ' + list_of_nodes[i]
 
-    index = int(raw_input('chose one! '))
+    index = int(raw_input('choose one! '))
     
     pid = get_pid_of_node(list_of_nodes[index])
 
     print 'node ->>' + list_of_nodes[index]
     print 'pid: ' + pid + ' ports: ' + str(get_src_tcp_ports(pid))
+
+
+def get_topic_list():
+    out = _exec_command(get_topic_list_cmd)
+    logger.debug('topic list: \n' + out)
+    return out.split('\n')
+
+def get_topic_type(topic):
+    out = _exec_command(get_topic_type_cmd + [topic])
+    logger.debug(topic + ' type: '+ out)
+    if len(out.split('\n')) > 2:
+        raise Exception('missing some types')
+    return out.split('\n')[0]
+
+def show_msg(msg):
+    out = _exec_command(show_msg_cmd + [msg])
+    logger.debug(msg + ' show: '+ out)
+    return out.split('\n')[:-2]
+
+def topic_analyzer():
+    topic_list = get_topic_list()
+    data = {}
+
+    for topic in topic_list:
+        topic_type = get_topic_type(topic)
+        data[topic] = {'type': {topic_type: show_msg(topic_type)}}
+
+    return data
+
 
 """
 launch as super user
@@ -116,9 +151,10 @@ launch as super user
 NOTES:
 add: info about xmlrpc servers
 """
+
 def main():
     #test_basics()
-    for name, value in get_network_structure().items():
+    for name, value in topic_analyzer().items():
         print name
         print value
         print ''
