@@ -31,7 +31,13 @@ tcp_port_cmd = 'netstat --listening --program | grep '
 
 tcp_port_cmd_all = 'netstat --all --program | grep 4507'
 
-bind_address_cmd = 'iptables -A OUTPUT -p tcp --dport {0} -j NFQUEUE --queue-num 1'
+bind_address_cmd = 'iptables -A OUTPUT -p tcp --sport {0} -j NFQUEUE --queue-num 1'
+
+unbind_address_cmd = 'iptables -D OUTPUT -p tcp --sport {0} -j NFQUEUE --queue-num 1'
+
+# sudo iptables -D OUTPUT -p tcp --sport 5775 -j NFQUEUE --queue-num 1
+
+list_iptables_cmd = ['iptables', '-L']
 
 topic_list_cmd = ['rostopic', 'list']
 
@@ -39,9 +45,10 @@ topic_type_cmd = ['rostopic', 'type']
 
 show_msg_cmd = ['rosmsg', 'show']
 
-unbind_address_cmd = ""
+
 packets = []
 ports_to_esclude = []
+binded_ports = []
 
 
 def _exec_command(cmd, shell=False):
@@ -77,10 +84,15 @@ def get_src_tcp_ports(pid, all=False):
     
     pattern_tcp = 'tcp        0      0 \*:'
     pattern_udp = 'udp        0      0 \*:'
-    m = re.findall('(?<='+pattern_tcp+')\d+|(?<='+pattern_udp+')\d+', out)
-    port = m
 
-    return port
+    m = re.findall('(?<='+pattern_tcp+')\d+', out)
+    result = {'tcp' : m, 'udp':None}
+    
+    m = re.search('(?<='+pattern_udp+')\d+', out) 
+    if not(m is None):
+        result['udp'] = m.group(0)
+
+    return result
 
 
 def get_network_structure():
@@ -88,13 +100,24 @@ def get_network_structure():
     list_of_nodes_cmd = get_list_of_nodes_cmd()
     for i in range(len(list_of_nodes_cmd)):
         logger.debug('node -> '+str(i) + ' ' + list_of_nodes_cmd[i])
-        nodes_data[list_of_nodes_cmd[i]] = {'pid': '','host':'' , 'ports' : []}
+        nodes_data[list_of_nodes_cmd[i]] = {'pid': '','host':'' , 'ports' : {'xmlrpc':None,'tcp':None, 'udp':None}}
         
         pid, host = get_pid_and_host(list_of_nodes_cmd[i])
         nodes_data[list_of_nodes_cmd[i]]['pid'] = pid
         nodes_data[list_of_nodes_cmd[i]]['host'] = host
         
-        nodes_data[list_of_nodes_cmd[i]]['ports'] = get_src_tcp_ports(pid)
+        ports = nodes_data[list_of_nodes_cmd[i]]['ports']
+        ports_data = get_src_tcp_ports(pid)
+        
+        if ports_data['tcp'][0] in host:
+            ports['xmlrpc'] = ports_data['tcp'][0]
+            ports['tcp'] = ports_data['tcp'][1]
+        else:
+            ports['xmlrpc'] = ports_data['tcp'][1]
+            ports['tcp'] = ports_data['tcp'][0]
+        if not(ports_data['udp'] is None):
+            ports['udp'] = ports_data['udp']
+
         logger.debug('data - ' + str(nodes_data[list_of_nodes_cmd[i]]))
     return nodes_data
 
@@ -141,14 +164,24 @@ def topic_analyzer():
 
     return data
 
-def bind_address_cmd(src_port, src_ip='127.0.0.1', dst_port=None, dst_ip=None):
+def bind_address(src_port, src_ip='127.0.0.1', dst_port=None, dst_ip=None):
     """TO DO for dst and ips"""
-    out = _exec_command(bind_address_cmd.format(src_port))
+    global binded_ports
+    binded_ports.append(src_port)
+    
+    out = _exec_command(bind_address_cmd.format(int(src_port)),shell=True)
 
 
-def unbind_address_cmd(src_port, src_ip='127.0.0.1', dst_port=None, dst_ip=None):
+def unbind_address(src_port, src_ip='127.0.0.1', dst_port=None, dst_ip=None):
     """TO DO"""
-    pass
+    try:
+        global binded_ports
+        binded_ports.remove(src_port)
+    except:
+        pass
+
+    out = _exec_command(unbind_address_cmd.format(src_port), shell=True)
+
 
 structure = {}
 """structure = {src: 'name', dst: 'name'
@@ -200,7 +233,7 @@ def analyze_packet(packet):
     except:
         raise
 
-def analyze_and_built_structure(data):
+def analyze_and_built_structure(data_of_nodes):
     _filter = 'host 127.0.0.1 or host 127.0.1.1'
     global ports_to_esclude
     
@@ -215,6 +248,76 @@ def analyze_and_built_structure(data):
 
     structure = {}
 
+def analyze_packet_wrapper():
+    analyze_packet("")
+
+def bind_address_wrapper():
+    print "Insert port to bind"
+    port = raw_input(" -- > ")
+    bind_address(int(port))
+
+def unbind_address_wrapper():
+    print "Insert port to unbind"
+    port = raw_input(" -- > ")
+    unbind_address(int(port))
+
+def bind_and_clear():
+
+    for port in binded_ports:
+        unbind_address(int(port))
+
+    bind_address_wrapper()
+
+def print_network_structure():
+    network_structure = get_network_structure()
+    
+    for name, value in network_structure.items():
+        print name
+        print value
+        print ''
+
+def print_current_binded():
+    print 'Current rules: '
+    global binded_ports
+    print 'ports ' + str(binded_ports)
+    out = _exec_command(list_iptables_cmd)
+    print out
+    """
+    for port in binded_ports:
+        print bind_address_cmd.format(port)
+    """
+options = ("""
+            1 - > print network strucure
+            2 - > sniff packets
+            3 - > bind address
+            4 - > unbind address
+            5 - > bind and remove other bindings
+            6 - > print current binded 
+            7 - > quit """)
+
+interactive_options = {
+                        1: print_network_structure,
+                        2: analyze_packet_wrapper,
+                        3: bind_address_wrapper,
+                        4: unbind_address_wrapper,
+                        5: bind_and_clear,
+                        6: print_current_binded,
+                        7: sys.exit
+}
+
+def run_interactive_prompt():
+    while True:
+        print options
+        try:
+            option = raw_input(" -- > ")
+
+            f = interactive_options[int(option)]
+            print '-'*120
+            f()
+     #   except ValueError:
+      #      print 'Insert integer'
+        except:
+            raise
 
 """
 launch as super user
@@ -224,16 +327,16 @@ add: info about xmlrpc servers
 """
 
 def main():
-    
+    run_interactive_prompt()
     #test_basics()
-    
+    """
     network_structure = get_network_structure()
     
     for name, value in network_structure.items():
         print name
         print value
         print ''
-    
+    """
     #analyze_and_built_structure("")
 
 if __name__ == '__main__':
