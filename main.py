@@ -45,7 +45,7 @@ topic_type_cmd = ['rostopic', 'type']
 
 show_msg_cmd = ['rosmsg', 'show']
 
-
+data_network = None
 packets = []
 ports_to_esclude = []
 binded_ports = []
@@ -187,7 +187,7 @@ structure = {}
 """structure = {src: 'name', dst: 'name'
                 comunication : {topci(or type): topic_name, src_port : 'src_port', dst_port:'dst_port'}
                 }"""
-data_classes = ['Pose', 'PoseStamped', 'Vector3', 'Quaternion', 'Wrench', 'WrenchStamped', 'TwistStamped', 'Bool', 'Float32', 'Empty','String']
+data_classes = ['String', 'Empty','Quaternion', 'Wrench', 'WrenchStamped', 'TwistStamped', 'Bool', 'Float32', 'PoseStamped', 'Pose','Vector3']
 
 def get_data_class(raw_data):
     for data_class in data_classes:
@@ -205,7 +205,7 @@ def get_data_class(raw_data):
             print "current msg -> %s"%msg
             return msg,type(msg)
         except:
-            raise
+            pass
 
 def analyze_packet(packet):
     if not(Raw in packet and TCP in packet):
@@ -220,6 +220,8 @@ def analyze_packet(packet):
             dst_port = packet[TCP].dport
             if not((src_port, dst_port) in ports_to_esclude): 
                 print '---------------------------------------------'
+                print 'node ' + str(get_node_from_port(src_port))
+                print 'node ' + str(get_node_from_port(dst_port))
                 print "packet from: {0} to {1}".format(src_ip,dst_ip)
                 print "ports      {0}   to {1}".format(src_port, dst_port)
 
@@ -232,6 +234,15 @@ def analyze_packet(packet):
 
     except:
         raise
+
+def get_node_from_port(port):
+    if data_network is None:
+        return None
+    for key, value in data_network.items():
+
+        if value['ports']['tcp'] == str(port):
+            return key 
+    return None
 
 def analyze_and_built_structure(data_of_nodes):
     _filter = 'host 127.0.0.1 or host 127.0.1.1'
@@ -249,7 +260,7 @@ def analyze_and_built_structure(data_of_nodes):
     structure = {}
 
 def analyze_packet_wrapper():
-    analyze_packet("")
+    analyze_and_built_structure("")
 
 def bind_address_wrapper():
     print "Insert port to bind"
@@ -268,10 +279,23 @@ def bind_and_clear():
 
     bind_address_wrapper()
 
+
 def print_network_structure():
     network_structure = get_network_structure()
-    
+    global data_network
+    data_network = network_structure
+
     for name, value in network_structure.items():
+        print name
+        print value
+        print ''
+
+def print_data_network():
+    if data_network is None:
+        return
+    global data_network
+
+    for name, value in data_network.items():
         print name
         print value
         print ''
@@ -288,21 +312,23 @@ def print_current_binded():
     """
 options = ("""
             1 - > print network strucure
-            2 - > sniff packets
-            3 - > bind address
-            4 - > unbind address
-            5 - > bind and remove other bindings
-            6 - > print current binded 
-            7 - > quit """)
+            2 - > print old data
+            3 - > sniff packets
+            4 - > bind address
+            5 - > unbind address
+            6 - > bind and remove other bindings
+            7 - > print current binded 
+            8 - > quit """)
 
 interactive_options = {
                         1: print_network_structure,
-                        2: analyze_packet_wrapper,
-                        3: bind_address_wrapper,
-                        4: unbind_address_wrapper,
-                        5: bind_and_clear,
-                        6: print_current_binded,
-                        7: sys.exit
+                        2: print_data_network,
+                        3: analyze_packet_wrapper,
+                        4: bind_address_wrapper,
+                        5: unbind_address_wrapper,
+                        6: bind_and_clear,
+                        7: print_current_binded,
+                        8: sys.exit
 }
 
 def run_interactive_prompt():
