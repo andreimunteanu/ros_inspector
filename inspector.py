@@ -14,6 +14,8 @@ from sensor_msgs.msg import JointState, Joy
 from netfilterqueue import NetfilterQueue
 import random
 import codecs
+import bitarray
+import time
 
 values = (1.19, 0.0)
 counter = 1
@@ -155,9 +157,71 @@ def packet_inspector(packet):
         print 'except'
         packet.accept()
 
-def manipulate_string_randomly():
+def manipulate_string_randomly(string):
+    bits = bitarray.bitarray()
+    bits.fromstring(string)
 
+    string_bit = bits.tostring()
+
+    
     return
+
+previous_packet = None
+sleep_time = 0.001
+new_sleep_time = sleep_time
+inc = 1.5
+
+def delay(packet):
+    try:
+        pkt = IP(packet.get_payload())
+        if not(Raw in pkt and TCP in pkt):
+            packet.accept()
+            return
+        print 'in'
+        global previous_packet, sleep_time, new_sleep_time, inc
+        """
+        time.sleep(sleep_time)
+        print 'accepted'
+        packet.accept()
+        """
+        if previous_packet is None:
+            print 'set previous_packet'
+            previous_packet = packet
+            packet.accept()
+
+            return
+
+        elif not(packet == previous_packet):
+
+            sleep_time = new_sleep_time
+            print 'sleep_time %f'%(sleep_time)
+            time.sleep(sleep_time)
+            packet.accept()
+            new_sleep_time = inc*sleep_time
+
+            if new_sleep_time > 0.5:
+                inc = 1.0
+                new_sleep_time = 0.5
+                
+            print 'sent'
+            previous_packet = packet
+            return 
+        
+        elif previous_packet == packet:
+           
+            print 'lost packet'
+            inc = 1.0
+            new_sleep_time = sleep_time
+            packet.accept()
+            previous_packet = packet
+            return
+
+        packet.accept()
+        
+    except:
+        packet.accept()
+        raise
+       
 
 
 def drop(packet):
@@ -206,10 +270,10 @@ def drop(packet):
 
 
 def main():
-    
+    time.sleep(sleep_time)
     nfqueue = NetfilterQueue()
    
-    nfqueue.bind(1, packet_inspector) 
+    nfqueue.bind(1, delay) 
     try:
         print "[*] waiting for data"
         nfqueue.run()
