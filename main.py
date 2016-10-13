@@ -1,3 +1,4 @@
+from __future__ import print_function
 import os,sys,nfqueue,socket
 from scapy.all import *
 import random
@@ -47,7 +48,7 @@ show_msg_cmd = ['rosmsg', 'show']
 
 data_network = None
 packets = []
-ports_to_esclude = []
+ports_to_esclude = {}
 binded_ports = []
 
 
@@ -125,16 +126,16 @@ def get_network_structure():
 def test_basics():
     list_of_nodes_cmd = get_list_of_nodes_cmd()
 
-    print 'active nodes'
+    print('active nodes')
     for i in range(len(list_of_nodes_cmd)):
-        print str(i) + ' ' + list_of_nodes_cmd[i]
+        print (str(i) + ' ' + list_of_nodes_cmd[i])
 
     index = int(raw_input('choose one! '))
     
     pid = get_pid_and_host(list_of_nodes_cmd[index])
 
-    print 'node ->>' + list_of_nodes_cmd[index]
-    print 'pid: ' + pid + ' ports: ' + str(get_src_tcp_ports(pid))
+    print ('node -->' + list_of_nodes_cmd[index])
+    print ('pid: ' + pid + ' ports: ' + str(get_src_tcp_ports(pid)))
 
 
 def get_topic_list():
@@ -187,11 +188,18 @@ structure = {}
 """structure = {src: 'name', dst: 'name'
                 comunication : {topci(or type): topic_name, src_port : 'src_port', dst_port:'dst_port'}
                 }"""
-data_classes = ['String', 'Empty','Quaternion', 'Wrench', 'WrenchStamped', 'TwistStamped', 'Bool', 'Float32', 'PoseStamped', 'Pose','Vector3']
+data_classes = ['String', 'Empty','Quaternion', 'Wrench', 'WrenchStamped', 'TwistStamped', 'Bool', 'Float32', 'PoseStamped', 'Pose','Vector3']#,'JointState', 'Joy']
+
+"""nb jointState mi da la string vuota <_<"""
 
 def get_data_class(raw_data):
+
+    types = {}
+
     for data_class in data_classes:
+        
         try:
+            types[data_class] = None
             b = StringIO()
 
             b.write(raw_data)
@@ -202,12 +210,17 @@ def get_data_class(raw_data):
             msg = get_class(data_class)()
             b.seek(4)
             msg.deserialize(b.read(size))
-            print "current msg -> %s"%msg
-            return msg,type(msg)
+            #print ("current msg -> %s"%msg)
+            types[data_class] = msg
+            b.close()
         except:
             pass
 
+    return types
+
+
 def analyze_packet(packet):
+    global ports_to_esclude
     if not(Raw in packet and TCP in packet):
         return
 
@@ -218,19 +231,24 @@ def analyze_packet(packet):
         if TCP in packet:
             src_port = packet[TCP].sport
             dst_port = packet[TCP].dport
-            if not((src_port, dst_port) in ports_to_esclude): 
-                print '---------------------------------------------'
-                print 'node ' + str(get_node_from_port(src_port))
-                print 'node ' + str(get_node_from_port(dst_port))
-                print "packet from: {0} to {1}".format(src_ip,dst_ip)
-                print "ports      {0}   to {1}".format(src_port, dst_port)
+            if not((src_port, dst_port) in ports_to_esclude.keys()) or len(ports_to_esclude[(src_port, dst_port)]) != 2: 
+                print ('---------------------------------------------')
+                print ('node ' + str(get_node_from_port(src_port)))
+                print ('node ' + str(get_node_from_port(dst_port)))
+                print ("packet from: {0} to {1}".format(src_ip,dst_ip))
+                print ("ports      {0}   to {1}".format(src_port, dst_port))
 
-                data, data_type = get_data_class(packet[Raw].load)
+                data_and_types = get_data_class(packet[Raw].load)
 
-                print 'type: {0}'.format(data_type)
-                print '----------------------------------------------'
-                global ports_to_esclude
-                ports_to_esclude.append((src_port,dst_port))
+                #print 'type: %r'%(data_and_types)
+                print ('----------------------------------------------')
+
+                
+                if not((src_port, dst_port) in ports_to_esclude.keys()):
+                    ports_to_esclude[(src_port,dst_port)] = [data_and_types]
+                else:
+                    ports_to_esclude[(src_port,dst_port)].append(data_and_types)
+                    
 
     except:
         raise
@@ -244,31 +262,39 @@ def get_node_from_port(port):
             return key 
     return None
 
+def infer_data_type(data):
+    pass
+
 def analyze_and_built_structure(data_of_nodes):
     _filter = 'host 127.0.0.1 or host 127.0.1.1'
     global ports_to_esclude
     
     for i in range(2):
-        log.debug('i ->  {0} ports excluded: \n'.format(i) + str(ports_to_esclude) )
+        #log.debug('i ->  {0} ports excluded: \n'.format(i) + str(ports_to_esclude) )
         port_filter = ''
 
-        for ports in ports_to_esclude:
+        for ports in ports_to_esclude.keys():
             port_filter = port_filter + ' and not port {0} and not {1}'.format(ports[0],ports[1])
 
         sniff(count=1000,filter=_filter ,prn=analyze_packet)
 
+    s = ''
+    for k, v in ports_to_esclude.items():
+        s = s + ' '+ str(k) + ' : ' + str(len(v)) 
+
+    logger.debug(' ports analyzed:  {0} \n'.format(s))
     structure = {}
 
 def analyze_packet_wrapper():
     analyze_and_built_structure("")
 
 def bind_address_wrapper():
-    print "Insert port to bind"
+    print ("Insert port to bind")
     port = raw_input(" -- > ")
     bind_address(int(port))
 
 def unbind_address_wrapper():
-    print "Insert port to unbind"
+    print ("Insert port to unbind")
     port = raw_input(" -- > ")
     unbind_address(int(port))
 
@@ -286,9 +312,9 @@ def print_network_structure():
     data_network = network_structure
 
     for name, value in network_structure.items():
-        print name
-        print value
-        print ''
+        print (name)
+        print (value)
+        print ('')
 
 def print_data_network():
     if data_network is None:
@@ -296,52 +322,52 @@ def print_data_network():
     global data_network
 
     for name, value in data_network.items():
-        print name
-        print value
-        print ''
+        print (name)
+        print (value)
+        print ('')
 
 def print_current_binded():
-    print 'Current rules: '
+    print ('Current rules: ')
     global binded_ports
-    print 'ports ' + str(binded_ports)
+    print ('ports ' + str(binded_ports))
     out = _exec_command(list_iptables_cmd)
-    print out
+    print (out)
     """
     for port in binded_ports:
         print bind_address_cmd.format(port)
     """
 options = ("""
-            1 - > print network strucure
+            1 - > print network strucure           q - > quit
             2 - > print old data
             3 - > sniff packets
             4 - > bind address
             5 - > unbind address
             6 - > bind and remove other bindings
             7 - > print current binded 
-            8 - > quit """)
+            """)
 
 interactive_options = {
-                        1: print_network_structure,
-                        2: print_data_network,
-                        3: analyze_packet_wrapper,
-                        4: bind_address_wrapper,
-                        5: unbind_address_wrapper,
-                        6: bind_and_clear,
-                        7: print_current_binded,
-                        8: sys.exit
+                        '1': print_network_structure,
+                        '2': print_data_network,
+                        '3': analyze_packet_wrapper,
+                        '4': bind_address_wrapper,
+                        '5': unbind_address_wrapper,
+                        '6': bind_and_clear,
+                        '7': print_current_binded,
+                        'q': sys.exit
 }
 
 def run_interactive_prompt():
     while True:
-        print options
+        print (options)
         try:
             option = raw_input(" -- > ")
-
-            f = interactive_options[int(option)]
-            print '-'*120
+            o = option
+            f = interactive_options[o]
+            print ('-'*120)
             f()
-     #   except ValueError:
-      #      print 'Insert integer'
+        except KeyError:
+            print ('no option')
         except:
             raise
 

@@ -157,19 +157,94 @@ def packet_inspector(packet):
         print 'except'
         packet.accept()
 
+counter = 0
+
 def manipulate_string_randomly(string):
-    bits = bitarray.bitarray()
-    bits.fromstring(string)
-
-    string_bit = bits.tostring()
-
     
-    return
+    bits = bitarray.bitarray()
+    bits.frombytes(string)
+    list_bit = bits.tolist()
+    
+    random_list = [bit if random.randint(0,100) != 1 else (not bit) for bit in list_bit]
+    
+    a = bitarray.bitarray(random_list).tobytes()
+
+    return a
+
+
+def random_modify(packet):
+ 
+    try:
+        #pkt = packet 
+        pkt = IP(packet.get_payload())
+        if not(Raw in pkt and TCP in pkt):
+            packet.accept()
+            return
+
+        global counter
+
+        counter = counter + 1
+
+        b = StringIO()
+        b.write(pkt[Raw].load)
+        
+        print 'pkt initial len -> %d '%len(str(pkt))
+        
+        b.seek(0)
+        (size,) = struct.unpack('<I', b.read(4))
+        msg = String()
+        b.seek(4)
+        print 'size -> %s'%(size)
+
+        b.seek(4)
+        msg.deserialize(b.read(size))
+
+        s = msg.data
+        random_s = manipulate_string_randomly(bytes(s))
+
+        """
+        with open('_log_transmission.txt','w') as f:
+            print msg.encode('utf-16')
+            f.write(msg.encode('utf8'))
+        """
+
+        print type(msg.data)
+        print "current msg -> %s"%msg.data
+        print "random string -> %s"%str(random_s)
+        print "random len " + str(len(str(random_s)))
+        print 'oringial len -> %d'%len(str(msg.data))
+
+        msg.data = str(random_s)
+
+        b.seek(4)
+        
+        msg.serialize(b)
+        b.seek(0)
+        data = b.read(size+4)
+        
+ 
+        del pkt[IP].chksum
+        del pkt[TCP].chksum
+
+        pkt[Raw].load = data
+
+        #print pkt
+        #print packet._given_payload
+        if counter > 10000:
+            packet.set_payload(bytes(pkt)) #set the packet content to our modified version
+            print 'random sent'
+        print 'pkt final len -> %d'%len(str(pkt))
+        
+        packet.accept()
+    except:
+        packet.accept()
+        raise
 
 previous_packet = None
-sleep_time = 0.001
+sleep_time = 0.1
 new_sleep_time = sleep_time
 inc = 1.5
+
 
 def delay(packet):
     try:
@@ -178,12 +253,8 @@ def delay(packet):
             packet.accept()
             return
         print 'in'
-        global previous_packet, sleep_time, new_sleep_time, inc
-        """
-        time.sleep(sleep_time)
-        print 'accepted'
-        packet.accept()
-        """
+        global previous_packet, sleep_time, new_sleep_time, inc, counter
+
         if previous_packet is None:
             print 'set previous_packet'
             previous_packet = packet
@@ -197,13 +268,18 @@ def delay(packet):
             print 'sleep_time %f'%(sleep_time)
             time.sleep(sleep_time)
             packet.accept()
-            new_sleep_time = inc*sleep_time
-
+            #new_sleep_time = inc*sleep_time
+            """
             if new_sleep_time > 0.5:
                 inc = 1.0
                 new_sleep_time = 0.5
-                
+
             print 'sent'
+            """
+            counter = counter + 1
+            if counter > 100:
+                print 'over limit'
+                new_sleep_time = 0.0
             previous_packet = packet
             return 
         
@@ -270,10 +346,9 @@ def drop(packet):
 
 
 def main():
-    time.sleep(sleep_time)
     nfqueue = NetfilterQueue()
    
-    nfqueue.bind(1, delay) 
+    nfqueue.bind(1, random_modify) 
     try:
         print "[*] waiting for data"
         nfqueue.run()
