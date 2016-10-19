@@ -46,11 +46,81 @@ topic_type_cmd = ['rostopic', 'type']
 
 show_msg_cmd = ['rosmsg', 'show']
 
+data_classes_list = ['String', 'Empty','Quaternion', 'Wrench', 'WrenchStamped', 'TwistStamped', 'Bool', 'Float32', 'PoseStamped', 'Pose','Vector3']#,'JointState', 'Joy']
+
+data_classes_dict = {'String' : None, 'Empty' : None, 'Quaternion' : None, 
+                'Wrench' : None, 'WrenchStamped' : None, 
+                'TwistStamped' : None, 'Bool' : None, 'Float32' : None, 
+                'PoseStamped' : None, 'Pose' : None, 'Vector3' : None }
+
+
 data_network = None
 packets = []
 ports_to_esclude = {}
 binded_ports = []
 
+def String_fun(previous_data_type, current_data_type):
+    return None
+
+def Empty_fun(previous_data_type, current_data_type):
+    return None
+
+def Quaternion_fun(previous_data_type, current_data_type):
+    return None
+
+def Wrench_fun(previous_data_type, current_data_type):
+    return None
+
+def WrenchStamped_fun(previous_data_type, current_data_type):
+    return None
+
+def TwistStamped_fun(previous_data_type, current_data_type):
+    return None
+
+def Bool_fun(previous_data_type, current_data_type):
+    return None
+
+def Float32_fun(previous_data_type, current_data_type):
+    return None
+
+def PoseStamped_fun(previous_data_type, current_data_type):
+    return None
+
+def Pose_fun(previous_data_type, current_data_type):
+    """
+    TODO with PyKDL.Frame
+    """
+    print ('Pose :')
+    print ('current ' + str(current_data_type))
+    print ('previous ' + str(previous_data_type))
+    c_pos = current_data_type.position
+    c_orie = current_data_type.orientation
+    
+    p_pos = previous_data_type.position
+    p_orie = previous_data_type.orientation
+
+    ar_pos = numpy.array((c_pos.x-p_pos.x,c_pos.y-p_pos.y,c_pos.z-p_pos.z))
+    ar_orie = numpy.array((c_orie.x-p_orie.x, c_orie.y-p_orie.y, c_orie.z-p_orie.z, c_orie.w-p_orie.w))
+
+    
+    #ar_pos = numpy.array((c_pos.x,c_pos.y,c_pos.z))
+    #ar_orie = numpy.array((c_orie.x, c_orie.y, c_orie.z, c_orie.w))
+
+    norm_pos = numpy.linalg.norm(ar_pos)
+    norm_orie = numpy.linalg.norm(ar_orie)
+    print (str(norm_pos) + ' ' + str(norm_orie))
+    return [norm_pos, norm_orie]
+
+def Vector3_fun(previous_data_type, current_data_type):
+    return None
+
+
+
+
+data_classes_funs = {'String' : String_fun, 'Empty' : Empty_fun,'Quaternion' : Quaternion_fun,'Wrench' : Wrench_fun,
+                    'WrenchStamped' : WrenchStamped_fun,'TwistStamped' : TwistStamped_fun,
+                    'Bool' : Bool_fun,'Float32' : Float32_fun,'PoseStamped' : PoseStamped_fun,
+                    'Pose' : Pose_fun,'Vector3' : Vector3_fun}
 
 def _exec_command(cmd, shell=False):
     
@@ -188,15 +258,13 @@ structure = {}
 """structure = {src: 'name', dst: 'name'
                 comunication : {topci(or type): topic_name, src_port : 'src_port', dst_port:'dst_port'}
                 }"""
-data_classes = ['String', 'Empty','Quaternion', 'Wrench', 'WrenchStamped', 'TwistStamped', 'Bool', 'Float32', 'PoseStamped', 'Pose','Vector3']#,'JointState', 'Joy']
-
 """nb jointState mi da la string vuota <_<"""
 
 def get_data_class(raw_data):
 
     types = {}
 
-    for data_class in data_classes:
+    for data_class in data_classes_list:
         
         try:
             types[data_class] = None
@@ -218,6 +286,26 @@ def get_data_class(raw_data):
 
     return types
 
+def infer_data_type(key, data_types):
+    global ports_to_esclude
+    ports_to_esclude[key]['counter'] = ports_to_esclude[key]['counter'] + 1
+
+    ports_to_esclude[key]['previous_data_types'] = ports_to_esclude[key]['current_data_types']
+    ports_to_esclude[key]['current_data_types'] = data_types
+
+    compute_accumulated(ports_to_esclude[key])
+
+
+def compute_accumulated(data):
+    previous_data_types = data['previous_data_types']
+    current_data_types = data['current_data_types']
+
+    for data_class in data_classes_list:
+        if not(previous_data_types[data_class] is None or current_data_types[data_class] is None):
+            fun = data_classes_funs[data_class]
+            result = fun(previous_data_types[data_class], current_data_types[data_class])
+            data['accumulated'] = result
+    #return result
 
 def analyze_packet(packet):
     global ports_to_esclude
@@ -231,7 +319,7 @@ def analyze_packet(packet):
         if TCP in packet:
             src_port = packet[TCP].sport
             dst_port = packet[TCP].dport
-            if not((src_port, dst_port) in ports_to_esclude.keys()) or len(ports_to_esclude[(src_port, dst_port)]) != 2: 
+            if not((src_port, dst_port) in ports_to_esclude.keys()) or ports_to_esclude[(src_port, dst_port)]['counter'] != 5: 
                 print ('---------------------------------------------')
                 print ('node ' + str(get_node_from_port(src_port)))
                 print ('node ' + str(get_node_from_port(dst_port)))
@@ -245,9 +333,14 @@ def analyze_packet(packet):
 
                 
                 if not((src_port, dst_port) in ports_to_esclude.keys()):
-                    ports_to_esclude[(src_port,dst_port)] = [data_and_types]
+                    
+                    ports_to_esclude[(src_port,dst_port)] = {'accumulated' : dict(data_classes_dict), 
+                                                                'current_data_types' : data_and_types , 
+                                                                'previous_data_types' : None, 
+                                                                'counter' : 0}
                 else:
-                    ports_to_esclude[(src_port,dst_port)].append(data_and_types)
+                    infer_data_type((src_port,dst_port), data_and_types)
+                    #ports_to_esclude[(src_port,dst_port)].append(data_and_types)
                     
 
     except:
@@ -261,9 +354,6 @@ def get_node_from_port(port):
         if value['ports']['tcp'] == str(port):
             return key 
     return None
-
-def infer_data_type(data):
-    pass
 
 def analyze_and_built_structure(data_of_nodes):
     _filter = 'host 127.0.0.1 or host 127.0.1.1'
@@ -280,7 +370,12 @@ def analyze_and_built_structure(data_of_nodes):
 
     s = ''
     for k, v in ports_to_esclude.items():
-        s = s + ' '+ str(k) + ' : ' + str(len(v)) 
+        s = (s + '\n\n'+ str(k) + ' : (' + str(get_node_from_port(k[0])) + ', ' + str(get_node_from_port(k[1])) + ')'
+                + '\n\tcounter -> ' + str(v['counter'])
+                + '\n\tcurrent_data_types -> ' + str(len(v['current_data_types']))
+                + '\n\tprevious_data_types -> ' + str(len(v['previous_data_types']))
+                + '\n\t' + 'accumulated ->\n' + str(v['accumulated'])
+            )
 
     logger.debug(' ports analyzed:  {0} \n'.format(s))
     structure = {}
