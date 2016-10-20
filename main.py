@@ -59,34 +59,34 @@ packets = []
 ports_to_esclude = {}
 binded_ports = []
 
-def String_fun(previous_data_type, current_data_type):
+def String_fun(previous_data_type, current_data_type, data):
     return None
 
-def Empty_fun(previous_data_type, current_data_type):
+def Empty_fun(previous_data_type, current_data_type, data):
     return None
 
-def Quaternion_fun(previous_data_type, current_data_type):
+def Quaternion_fun(previous_data_type, current_data_type, data):
     return None
 
-def Wrench_fun(previous_data_type, current_data_type):
+def Wrench_fun(previous_data_type, current_data_type, data):
     return None
 
-def WrenchStamped_fun(previous_data_type, current_data_type):
+def WrenchStamped_fun(previous_data_type, current_data_type, data):
     return None
 
-def TwistStamped_fun(previous_data_type, current_data_type):
+def TwistStamped_fun(previous_data_type, current_data_type, data):
     return None
 
-def Bool_fun(previous_data_type, current_data_type):
+def Bool_fun(previous_data_type, current_data_type, data):
     return None
 
-def Float32_fun(previous_data_type, current_data_type):
+def Float32_fun(previous_data_type, current_data_type, data):
     return None
 
-def PoseStamped_fun(previous_data_type, current_data_type):
+def PoseStamped_fun(previous_data_type, current_data_type, data):
     return None
 
-def Pose_fun(previous_data_type, current_data_type):
+def Pose_fun(previous_data_type, current_data_type, data):
     """
     TODO with PyKDL.Frame
     """
@@ -99,19 +99,23 @@ def Pose_fun(previous_data_type, current_data_type):
     p_pos = previous_data_type.position
     p_orie = previous_data_type.orientation
 
-    ar_pos = numpy.array((c_pos.x-p_pos.x,c_pos.y-p_pos.y,c_pos.z-p_pos.z))
-    ar_orie = numpy.array((c_orie.x-p_orie.x, c_orie.y-p_orie.y, c_orie.z-p_orie.z, c_orie.w-p_orie.w))
+    #ar_pos = numpy.array((c_pos.x-p_pos.x,c_pos.y-p_pos.y,c_pos.z-p_pos.z))
+    #ar_orie = numpy.array((c_orie.x-p_orie.x, c_orie.y-p_orie.y, c_orie.z-p_orie.z, c_orie.w-p_orie.w))
 
     
-    #ar_pos = numpy.array((c_pos.x,c_pos.y,c_pos.z))
-    #ar_orie = numpy.array((c_orie.x, c_orie.y, c_orie.z, c_orie.w))
+    ar_pos = numpy.array((c_pos.x,c_pos.y,c_pos.z))
+    ar_orie = numpy.array((c_orie.x, c_orie.y, c_orie.z, c_orie.w))
 
     norm_pos = numpy.linalg.norm(ar_pos)
     norm_orie = numpy.linalg.norm(ar_orie)
     print (str(norm_pos) + ' ' + str(norm_orie))
+    if data['accumulated'] is None:
+        data['accumulated'] = []
+    else:
+        data['accumulated'].append([norm_pos, norm_orie])
     return [norm_pos, norm_orie]
 
-def Vector3_fun(previous_data_type, current_data_type):
+def Vector3_fun(previous_data_type, current_data_type, data):
     return None
 
 
@@ -303,8 +307,7 @@ def compute_accumulated(data):
     for data_class in data_classes_list:
         if not(previous_data_types[data_class] is None or current_data_types[data_class] is None):
             fun = data_classes_funs[data_class]
-            result = fun(previous_data_types[data_class], current_data_types[data_class])
-            data['accumulated'] = result
+            result = fun(previous_data_types[data_class], current_data_types[data_class],data)
     #return result
 
 def analyze_packet(packet):
@@ -334,7 +337,7 @@ def analyze_packet(packet):
                 
                 if not((src_port, dst_port) in ports_to_esclude.keys()):
                     
-                    ports_to_esclude[(src_port,dst_port)] = {'accumulated' : dict(data_classes_dict), 
+                    ports_to_esclude[(src_port,dst_port)] = {'accumulated' : None,#dict(data_classes_dict), 
                                                                 'current_data_types' : data_and_types , 
                                                                 'previous_data_types' : None, 
                                                                 'counter' : 0}
@@ -379,6 +382,24 @@ def analyze_and_built_structure(data_of_nodes):
 
     logger.debug(' ports analyzed:  {0} \n'.format(s))
     structure = {}
+
+def print_results_from_packets():
+    global ports_to_esclude
+
+    for k,v in ports_to_esclude.items():
+        if not(v['accumulated'] is None):
+
+            if(get_node_from_port(k[0]) is None and get_node_from_port(k[1]) is None):
+                _id = k
+            else:
+                _id = '({0}: {1}, {2}: {3})'.format(get_node_from_port(k[0]),k[0],get_node_from_port(k[1]),k[1])
+
+            p = [x[0] for x in v['accumulated']]
+            o = [x[1] for x in v['accumulated']]
+            print ('-connection id: {0}\n\tposition norms: {1}:\
+                \n\torientation norms: {2}\n'.format(_id,p,o))
+
+
 
 def analyze_packet_wrapper():
     analyze_and_built_structure("")
@@ -435,20 +456,22 @@ options = ("""
             1 - > print network strucure           q - > quit
             2 - > print old data
             3 - > sniff packets
-            4 - > bind address
-            5 - > unbind address
-            6 - > bind and remove other bindings
-            7 - > print current binded 
+            4 - > get details of packets
+            5 - > bind address
+            6 - > unbind address
+            7 - > bind and remove other bindings
+            8 - > print current binded 
             """)
 
 interactive_options = {
                         '1': print_network_structure,
                         '2': print_data_network,
                         '3': analyze_packet_wrapper,
-                        '4': bind_address_wrapper,
-                        '5': unbind_address_wrapper,
-                        '6': bind_and_clear,
-                        '7': print_current_binded,
+                        '4': print_results_from_packets,
+                        '5': bind_address_wrapper,
+                        '6': unbind_address_wrapper,
+                        '7': bind_and_clear,
+                        '8': print_current_binded,
                         'q': sys.exit
 }
 
@@ -461,8 +484,8 @@ def run_interactive_prompt():
             f = interactive_options[o]
             print ('-'*120)
             f()
-        except KeyError:
-            print ('no option')
+        #except KeyError:
+        #    print ('no option')
         except:
             raise
 
