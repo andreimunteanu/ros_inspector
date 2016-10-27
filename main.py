@@ -452,11 +452,80 @@ def print_current_binded():
     for port in binded_ports:
         print bind_address_cmd.format(port)
     """
+
+def sniff_on_pcap():
+    """PERMISSIONS"""
+    """or only wireshark"""
+    try:
+        _filter = ''
+
+        def _prn(packet):
+            pass
+
+        pkts = sniff(filter=_filter, prn=_prn)
+    except:
+        raise
+    print('\n')    
+    print ('Interupted!\nCaptured -> %d packets'%len(pkts))
+    #print ('Summary:')
+    #print (pkts.summary())
+    logger.debug('Writing packets on "ros.cap"')
+    try:
+        pkts_from_file = rdpcap('ros.cap')
+        pkts.extend(pkts_from_file)
+    except IOError:
+        pass
+    wrpcap('ros.cap',pkts)
+
+def find_pose_from_file():
+    _filter = 'host 127.0.0.1 or host 127.0.1.1'
+    def structure_data(packet):
+        if not(Raw in packet and TCP in packet):
+            return
+        raw_data = packet[Raw].load
+        data = None
+        try:
+            data_class = 'Pose'
+            b = StringIO()
+
+            b.write(raw_data)
+            #print 'initial len -> %d '%len(str(packet))
+            b.seek(0)
+            (size,) = struct.unpack('<I', b.read(4))
+            get_class = lambda x: globals()[x]
+            msg = get_class(data_class)()
+            b.seek(4)
+            msg.deserialize(b.read(size))
+            #print ("current msg -> %s"%msg)
+            data = msg
+            b.close()
+        except:
+            return
+
+        c_pos = data.position
+        c_orie = data.orientation
+        ar_pos = numpy.array((c_pos.x,c_pos.y,c_pos.z))
+        ar_orie = numpy.array((c_orie.x, c_orie.y, c_orie.z, c_orie.w))
+
+        norm_pos = numpy.linalg.norm(ar_pos)
+        norm_orie = numpy.linalg.norm(ar_orie)
+
+        if norm_orie == 1.0:
+            print('-'*60)
+            print('ports: ({0},{1}) '.format(packet[TCP].sport, packet[TCP].dport))
+            print('norm_pos: {0}'.format(norm_pos))
+            print('norm_orie: {0}'.format(norm_orie))
+            print('-'*60)
+
+
+    pkts = sniff(filter=_filter, prn=structure_data, offline='ros.cap')
+
+
 options = ("""
             1 - > print network strucure           q - > quit
             2 - > print old data
-            3 - > sniff packets
-            4 - > get details of packets
+            3 - > sniff packets                    s - > sniff and store on pcap file
+            4 - > get details of packets           g - > get details from file
             5 - > bind address
             6 - > unbind address
             7 - > bind and remove other bindings
@@ -472,6 +541,8 @@ interactive_options = {
                         '6': unbind_address_wrapper,
                         '7': bind_and_clear,
                         '8': print_current_binded,
+                        's': sniff_on_pcap,
+                        'g': find_pose_from_file,
                         'q': sys.exit
 }
 

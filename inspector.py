@@ -369,8 +369,9 @@ def print_diff(current_pose):
 
     
 
+alternate = 1
 def scale(current_pose):
-    global previous_pose
+    global previous_pose, alternate
 
     p_pos = previous_pose.position
     p_ori = previous_pose.orientation
@@ -380,16 +381,29 @@ def scale(current_pose):
 
     dx = c_pos.x-p_pos.x
     dy = c_pos.y-p_pos.y
-    dz = c_pos.y-p_pos.y
+    dz = c_pos.z-p_pos.z
 
-    offset = 0.00001
+    sign = lambda x : 1 if x > 0 else -1
+    #offset = 0.00001
 
     factor = 1.0
 
-    print (offset if dx != 0 else 0.0)
-    c_pos.x = p_pos.x + factor*dx + (offset if dx != 0 else 0.0)
-    c_pos.y = p_pos.y + factor*dy + (offset if dy != 0 else 0.0)
-    c_pos.z = p_pos.z + factor*dz + (offset if dz != 0 else 0.0)
+    offset = max(dx,dy,dz)/10
+
+    print 'max(dx, dy, dz): %20.15f'%max(dx,dy,dz)
+    print 'offset: %20.15f' %alternate*offset
+    
+    c_pos.x = c_pos.x + offset*alternate 
+    c_pos.y = c_pos.y + offset*alternate 
+    c_pos.z = c_pos.z + offset*alternate
+    
+
+    """
+    c_pos.x = p_pos.x + factor*dx #+ (offset if dx != 0 else 0.0)
+    c_pos.y = p_pos.y + factor*dy #+ (offset if dy != 0 else 0.0)
+    c_pos.z = p_pos.z + factor*dz #+ (offset if dz != 0 else 0.0)
+    """
+    alternate = alternate * (-1)
 
 
 
@@ -407,7 +421,7 @@ def  pose_manipulator(packet):
         b = StringIO()
         b.write(pkt[Raw].load)
 
-        
+        print '*'*60
         print 'initial len -> %d '%len(str(pkt))
         
         b.seek(0)
@@ -423,13 +437,13 @@ def  pose_manipulator(packet):
             print msg.encode('utf-16')
             f.write(msg.encode('utf8'))
         """
-        print "current msg -> \n%s"%msg
+        print "current message -> \n%s"%msg
         print "len " + str(len(str(msg)))
-        print 'final len -> %d'%len(str(pkt))
-
+        print 'final len -> %d\n'%len(str(pkt))
+        print '-'*60
         print_diff(msg)
-
-        print 'modified -> \n%s'%msg
+        print '-'*60
+        print '\nmodified message -> \n%s'%msg
         
         b.seek(4)
         
@@ -444,17 +458,93 @@ def  pose_manipulator(packet):
         pkt[Raw].load = data
         packet.set_payload(bytes(pkt))
         
-
+        print '*'*60
         packet.accept()
     except:
         print 'except'
         packet.accept()
 
+transmit_old = 0
+previous_pose = None
+
+def emulate_packet_loss(packet):
+    global transmit_old, previous_pose
+    try:
+        #pkt = packet 
+        #print "---inside---"
+        pkt = IP(packet.get_payload())
+        if not(Raw in pkt and TCP in pkt):
+            packet.accept()
+            return
+        init_len = len(str(pkt))
+
+        
+
+
+        b = StringIO()
+        b.write(pkt[Raw].load)
+
+        print '*'*60
+        print 'initial len -> %d '%len(str(pkt))
+        
+        b.seek(0)
+        (size,) = struct.unpack('<I', b.read(4))
+        msg = Pose()
+        b.seek(4)
+        print 'size -> %s'%(size)
+        print type(b.read(size))
+        b.seek(4)
+        msg.deserialize(b.read(size))
+        """
+        with open('_log_transmission.txt','w') as f:
+            print msg.encode('utf-16')
+            f.write(msg.encode('utf8'))
+        """
+        print "current message -> \n%s"%msg
+        print "len " + str(len(str(msg)))
+        print 'final len -> %d\n'%len(str(pkt))
+        print '-'*60
+        
+        if transmit_old == 0:
+            previous_pose = msg
+        elif transmit_old < 50:
+            msg = previous_pose
+            print 'previous sent'
+        else :
+            transmit_old = -1
+
+        print '-'*60
+        print '\nmodified message -> \n%s'%msg
+        
+        b.seek(4)
+        
+        msg.serialize(b)
+        b.seek(0)
+        data = b.read(size+4)
+        
+ 
+        del pkt[IP].chksum
+        del pkt[TCP].chksum
+
+        pkt[Raw].load = data
+        packet.set_payload(bytes(pkt))
+        
+        print '*'*60
+
+        transmit_old =  1 + transmit_old
+
+        packet.accept()
+    except:
+        print 'except'
+        packet.accept()
+"""interecept curent pose"""
+
+
 
 def main():
     nfqueue = NetfilterQueue()
    
-    nfqueue.bind(1, pose_manipulator) 
+    nfqueue.bind(1, emulate_packet_loss) 
     try:
         print "[*] waiting for data"
         nfqueue.run()
